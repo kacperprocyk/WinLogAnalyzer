@@ -1,0 +1,105 @@
+import win32evtlog
+import win32evtlogutil
+import win32event
+import win32security
+import datetime
+import re
+import os
+
+
+class WindowsLogAnalyzer:
+    def __init__(self, server=None, log_type="Application"):  # Application/System/Security
+        self.server = None  # None = local pc
+        self.log_type = log_type
+        self.logs = []
+
+    def fetch_logs(self, max_records=100, recent_minutes=60):
+
+        try:
+            handle = win32evtlog.OpenEventLog(self.server, self.log_type)
+            total = win32evtlog.GetNumberOfEventLogRecords(handle)
+            print(f"Number of events in {self.log_type}: {total}")
+
+            flags = win32evtlog.EVENTLOG_BACKWARDS_READ | win32evtlog.EVENTLOG_SEQUENTIAL_READ
+            events = win32evtlog.ReadEventLog(handle, flags, 0)
+
+            # Calculate the minimum time for logs to fetch
+            now = datetime.datetime.now()
+            min_time = now - datetime.timedelta(minutes=recent_minutes)
+
+            count = 0
+            for event in events:
+                if count >= max_records:
+                    break
+                if event.TimeGenerated < min_time:  # Skip logs older than the minimum time
+                    continue
+                event_dict = {
+                    "time_generated": event.TimeGenerated.Format(),
+                    "source": event.SourceName,
+                    "event_id": event.EventID,
+                    "event_type": win32evtlogutil.SafeFormatMessage(event, self.log_type).strip(),
+                    "event_category": event.EventCategory
+                }
+                self.logs.append(event_dict)
+                count += 1
+
+            win32evtlog.CloseEventLog(handle)
+            print(f"Fetched {count} new logs.")
+        except Exception as e:
+            print(f"Error while fetching logs: {e}")
+
+    def filter_logs(self, keywords=None):  # Filter logs by keywords
+        if keywords is None:
+            keywords = ["ERROR", "CRITICAL", "FAILURE"]
+
+        filtered_logs = [log for log in self.logs if any(kw in log["event_type"] for kw in keywords)]
+        return filtered_logs
+
+    def display_logs(self, logs=None):
+        """Display logs in the console."""
+        logs_to_display = logs if logs else self.logs
+        for log in logs_to_display:
+            print(f"[{log['time_generated']}] {log['source']} (ID: {log['event_id']}): {log['event_type']}")
+
+    def save_logs(self, logs, file_path="filtered_windows_logs.txt"):
+        """Save logs to a file."""
+        try:
+            with open(file_path, "w") as f:
+                for log in logs:
+                    f.write(f"[{log['time_generated']}] {log['source']} (ID: {log['event_id']}): {log['event_type']}\n")
+            print(f"Logs saved in: {file_path}")
+        except Exception as e:
+            print(f"Log save error: {e}")
+
+
+if __name__ == "__main__":
+    analyzer = WindowsLogAnalyzer(log_type="Application")
+    analyzer.fetch_logs(max_records=50)
+    analyzer.display_logs()
+
+    # Log Filter
+    filtered = analyzer.filter_logs(keywords=["ERROR", "CRITICAL", "FAILURE"])
+    print("\n--- Filtered Logs ---")
+    analyzer.display_logs(filtered)
+
+    # Save logs in a file
+    analyzer.save_logs(filtered, file_path="filtered_windows_logs.txt")
+
+
+# Save logs in a file
+def save_logs(self, logs=None, file_name="filtered_windows_logs.txt"):
+    """Save logs to a file."""
+    if logs is None or not logs:
+        print("No logs to save.")
+        return
+
+    # Create full file path in the current directory
+    file_path = os.path.join(os.getcwd(), file_name)
+
+    try:
+        with open(file_path, "w") as file:
+            for log in logs:
+                file.write(f"[{log['time_generated']}] {log['source']} (ID: {log['event_id']}): {log['event_type']}\n")
+        print(f"Logs saved in: {file_path}")
+    except Exception as e:
+        print(f"Error while saving logs: {e}")
